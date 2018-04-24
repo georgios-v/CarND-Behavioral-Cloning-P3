@@ -11,6 +11,7 @@ import sys
 import tensorflow as tf
 
 from keras.backend.tensorflow_backend import set_session
+from keras.callbacks import ModelCheckpoint
 from keras.models import Sequential
 from keras.layers import Flatten, Dropout, Dense, Lambda, Cropping2D as crop2, Convolution2D as conv2
 from keras.layers.pooling import MaxPooling2D as mpool2
@@ -22,16 +23,16 @@ def load_data(args):
     images = []
     measurements = []
 
-    with open(os.path.join(args.data_dir, 'driving_log.csv') as csvfile:
+    with open(os.path.join(args.data_dir, 'driving_log.csv')) as csvfile:
         reader = csv.reader(csvfile)
         for line in reader:
             for i, cor in enumerate([0.0, 0.2, -0.2]):
-                img = cv2.imread(line[i])
+                img = line[i]
                 steering = float(line[3]) + cor
                 images.append(img)
                 measurements.append(steering)
     X_train, X_valid, y_train, y_valid = train_test_split(images, measurements, test_size=args.test_size)
-    args.img_shape = X_train[0].shape
+    args.img_shape = cv2.imread(X_train[0]).shape
     return X_train, X_valid, y_train, y_valid
     
 
@@ -44,7 +45,7 @@ def build_model(args):
     model.add(conv2(48, (5, 5), strides=(2, 2), activation='relu'))
     model.add(conv2(64, (3, 3), activation='relu'))
     model.add(conv2(64, (3, 3), activation='relu'))
-    model.add(Dropout(dropout=args.keep_prob))
+    model.add(Dropout(rate=args.keep_prob))
     model.add(Flatten())
     model.add(Dense(100))
     model.add(Dense(50))
@@ -56,40 +57,49 @@ def build_model(args):
 
 
 def train_generator(args, X, y, augment=True):
+    max_index = len(X) - 1
+    print(max_index)
     i = 0
     while True:
-        X_ = np.empty([args.batch_size, *args.img_shape])
-        y_ = np.empty(args.batch_size)
+        X_ = []  # np.empty([args.batch_size, *args.img_shape])
+        y_ = []  # np.empty(args.batch_size)
         j = k = 0
         while True:
-            img = X[i + j]
+            if i + j > max_index:
+                break
+            img = cv2.imread(X[i + j])
             steering = y[i + j]
-            X_[j] = img
-            y_[j] = steering
+            X_.append(img)
+            y_.append(steering)
             k += 1
-            if augment and k < args.batch_size - 1:
-                X_[k] = cv2.flip(img, 1)
-                y_[k] = steering * -1.0
+            if augment and len(y_) < args.batch_size:
+                X_.append(cv2.flip(img, 1))
+                y_.append(steering * -1.0)
                 k += 1
             j += 1
-            if k == args.batch_size:
+            print('i', i, 'j', j, 'k', k, 'y_', len(y_))
+            if len(y_) == args.batch_size or i + j > max_index:
                 break
+        i = i + j
+        # print(i)
+        X_ = np.array(X_)
+        y_ = np.array(y_)
         yield X_, y_
-        i += args.batch_size
 
 
 def train(args, model, X_train, X_valid, y_train, y_valid):
+    print(len(X_train))
     checkpoint = ModelCheckpoint('model-{epoch:02d}.h5', monitor='val_loss', verbose=0, 
                                  save_best_only=args.save_best_only, mode='auto')
     history_object = model.fit_generator(train_generator(args, X_train, y_train, augment=True),
-                                         steps_per_epoch=args.steps_per_epoch,
+                                         steps_per_epoch=2*len(X_train)//args.batch_size, # args.steps_per_epoch,
                                          epochs=args.epochs,
                                          verbose=1,
                                          callbacks=[checkpoint],
                                          validation_data=train_generator(args, X_valid, y_valid, augment=False),
                                          validation_steps=len(X_valid),
-                                         workers=arg.n_procs - 1,
-                                         use_multiprocessing=True,
+                                         workers=args.n_procs - 1,
+                                         use_multiprocessing=False,
                                          shuffle=True)
     return history_object
 
@@ -106,11 +116,6 @@ def plot_accuracy(history_object):
 
 
 def config():
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    config.gpu_options.per_process_gpu_memory_fraction = 0.4
-    set_session(tf.Session(config=config))
-    
     parser = argparse.ArgumentParser(description='CarND-Behavioral-Cloning-P3')
     parser.add_argument('-d', help='data directory',        dest='data_dir',          type=str,   default='../CarND-Behavioral-Cloning-data')
     parser.add_argument('-t', help='test size',             dest='test_size',         type=float, default=0.2)
@@ -118,17 +123,28 @@ def config():
     parser.add_argument('-e', help='number of epochs',      dest='epochs',            type=int,   default=10)
     parser.add_argument('-s', help='steps per epoch',       dest='steps_per_epoch',   type=int,   default=20000)
     parser.add_argument('-b', help='batch size',            dest='batch_size',        type=int,   default=40)
-    parser.add_argument('-l', help='learning rate',         dest='learning_rate',     type=float, default=0.0011)
+    parser.add_argument('-l', help='learning rate',         dest='learning_rate',     type=float, default=0.001)
     parser.add_argument('-c', help='save best models only', dest='save_best_only',    action='store_true', default=False)
     parser.add_argument('-p', help='plot accuracy',         dest='plot',              action='store_true', default=False)
+    parser.add_argument('--dry', help='print args and exit',dest='dry', action='store_true', default=False)
     args = parser.parse_args()
-    arg.n_procs = multiprocessing.cpu_count()
+    args.n_procs = multiprocessing.cpu_count()
+    
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.4
+    set_session(tf.Session(config=config))
+    
     return args
 
 
 if __name__ == '__main__':
     args = config()
+    print(args)
     data = load_data(args)
+    if args.dry:
+        print(len(data[0]))
+        sys.exit(0)
     model = build_model(args)
     history_object = train(args, model, *data)
     if args.plot:
