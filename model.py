@@ -17,6 +17,7 @@ from keras.layers import Flatten, Dropout, Dense, Lambda, Cropping2D as crop2, C
 from keras.layers.pooling import MaxPooling2D as mpool2
 from keras.optimizers import Adam
 from sklearn.model_selection import train_test_split
+from sklearn.utils import shuffle
 
 
 def load_data(args):
@@ -47,27 +48,31 @@ def build_model(args):
     model.add(conv2(64, (3, 3), activation='relu'))
     model.add(Dropout(rate=args.keep_prob))
     model.add(Flatten())
+    model.add(Dense(1152))
     model.add(Dense(100))
     model.add(Dense(50))
     model.add(Dense(10))
     model.add(Dense(1))
     model.summary()
-    model.compile(loss='mse', optimizer=Adam(lr=args.learning_rate))
+    model.compile(loss='mean_squared_error', optimizer=Adam(lr=args.learning_rate))
     return model
 
 
 def train_generator(args, X, y, augment=True):
     max_index = len(X) - 1
-    print(max_index)
+    #print("max index:", max_index)
     i = 0
+    reset = False
     while True:
         X_ = []  # np.empty([args.batch_size, *args.img_shape])
         y_ = []  # np.empty(args.batch_size)
         j = k = 0
         while True:
             if i + j > max_index:
+                reset = True
                 break
             img = cv2.imread(X[i + j])
+            #print(img)
             steering = y[i + j]
             X_.append(img)
             y_.append(steering)
@@ -77,18 +82,28 @@ def train_generator(args, X, y, augment=True):
                 y_.append(steering * -1.0)
                 k += 1
             j += 1
-            print('i', i, 'j', j, 'k', k, 'y_', len(y_))
-            if len(y_) == args.batch_size or i + j > max_index:
+            #print('i', i, 'j', j, 'k', k, 'y_', len(y_))
+            if len(y_) == args.batch_size:
                 break
-        i = i + j
-        # print(i)
+            if i + j > max_index:
+                reset = True
+                break
         X_ = np.array(X_)
         y_ = np.array(y_)
         yield X_, y_
+        if reset and augment:
+             X, y = shuffle(X, y)
+        if reset:
+            i = 0
+            reset = False
+        else:
+            i = i + j
+        # print(i)
 
 
 def train(args, model, X_train, X_valid, y_train, y_valid):
-    print(len(X_train))
+    print("train sz:", len(X_train))
+    print("valid sz:", len(X_valid))
     checkpoint = ModelCheckpoint('model-{epoch:02d}.h5', monitor='val_loss', verbose=0, 
                                  save_best_only=args.save_best_only, mode='auto')
     history_object = model.fit_generator(train_generator(args, X_train, y_train, augment=True),
@@ -97,7 +112,7 @@ def train(args, model, X_train, X_valid, y_train, y_valid):
                                          verbose=1,
                                          callbacks=[checkpoint],
                                          validation_data=train_generator(args, X_valid, y_valid, augment=False),
-                                         validation_steps=len(X_valid),
+                                         validation_steps=len(X_valid)//args.batch_size,
                                          workers=args.n_procs - 1,
                                          use_multiprocessing=False,
                                          shuffle=True)
