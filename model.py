@@ -20,6 +20,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 
 
+def load_image(path):
+    return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
+
+
 def load_data(args):
     images = []
     measurements = []
@@ -28,12 +32,12 @@ def load_data(args):
         reader = csv.reader(csvfile)
         for line in reader:
             for i, cor in enumerate([0.0, 0.2, -0.2]):
-                img = line[i]
+                img = line[i].strip()
                 steering = float(line[3]) + cor
                 images.append(img)
                 measurements.append(steering)
     X_train, X_valid, y_train, y_valid = train_test_split(images, measurements, test_size=args.test_size)
-    args.img_shape = cv2.imread(X_train[0]).shape
+    args.img_shape = load_image(X_train[0]).shape
     return X_train, X_valid, y_train, y_valid
     
 
@@ -71,14 +75,14 @@ def train_generator(args, X, y, augment=True):
             if i + j > max_index:
                 reset = True
                 break
-            img = cv2.imread(X[i + j])
+            img = load_image(X[i + j])
             #print(img)
             steering = y[i + j]
             X_.append(img)
             y_.append(steering)
             k += 1
             if augment and len(y_) < args.batch_size:
-                X_.append(cv2.flip(img, 1))
+                X_.append((cv2.flip(img, 1)))
                 y_.append(steering * -1.0)
                 k += 1
             j += 1
