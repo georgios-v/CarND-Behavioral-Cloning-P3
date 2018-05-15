@@ -140,7 +140,6 @@ def config():
     parser.add_argument('-t', help='test size',             dest='test_size',         type=float, default=0.2)
     parser.add_argument('-k', help='dropout probability',   dest='keep_prob',         type=float, default=0.7)
     parser.add_argument('-e', help='number of epochs',      dest='epochs',            type=int,   default=10)
-    parser.add_argument('-s', help='steps per epoch',       dest='steps_per_epoch',   type=int,   default=20000)
     parser.add_argument('-b', help='batch size',            dest='batch_size',        type=int,   default=40)
     parser.add_argument('-l', help='learning rate',         dest='learning_rate',     type=float, default=0.001)
     parser.add_argument('-c', help='save best models only', dest='save_best_only',    action='store_true', default=False)
